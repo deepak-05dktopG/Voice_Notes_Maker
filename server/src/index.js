@@ -1,11 +1,12 @@
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
+import http from 'http';
 import multer from 'multer';
 
 dotenv.config();
-
-const PORT = process.env.PORT || 3001;
+const DEFAULT_PORT = 3001;
+const PORT = Number(process.env.PORT || DEFAULT_PORT);
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
 const DEEPGRAM_PROJECT_ID = process.env.DEEPGRAM_PROJECT_ID; // optional
 
@@ -34,7 +35,7 @@ app.get('/balance', async (req, res) => {
       return res.status(500).json({ error: 'Server misconfigured: missing DEEPGRAM_API_KEY' });
     }
 
-    // Per assessment requirement: use /v1/projects and read projects[0].balance
+    // 1) Get projects (required by assessment)
     const projectsRes = await fetch('https://api.deepgram.com/v1/projects', {
       headers: {
         Authorization: `Token ${DEEPGRAM_API_KEY}`
@@ -48,20 +49,24 @@ app.get('/balance', async (req, res) => {
         .json({ error: 'Deepgram projects request failed', details: payload });
     }
 
-    const firstProject = payload?.projects?.[0];
-    if (!firstProject) {
+    const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+    if (projects.length === 0) {
       return res.status(500).json({ error: 'Deepgram response did not include any projects', details: payload });
     }
 
-    // Some accounts may include balance directly on project.
-    if (typeof firstProject.balance !== 'undefined') {
-      return res.json({ balance: firstProject.balance });
+    // Prefer explicit project id if provided
+    const chosenProject =
+      (DEEPGRAM_PROJECT_ID && projects.find((p) => p?.project_id === DEEPGRAM_PROJECT_ID)) || projects[0];
+
+    // Some accounts include a balance field on the project itself.
+    if (typeof chosenProject?.balance !== 'undefined') {
+      return res.json({ balance: chosenProject.balance });
     }
 
-    // Fallback: fetch balances for the first project.
-    const projectId = firstProject.project_id;
+    // 2) Fallback: fetch project balances (requires billing:read scope)
+    const projectId = chosenProject?.project_id;
     if (!projectId) {
-      return res.status(500).json({ error: 'Deepgram response missing project_id', details: payload });
+      return res.status(500).json({ error: 'Deepgram project missing project_id', details: payload });
     }
 
     const balancesRes = await fetch(`https://api.deepgram.com/v1/projects/${projectId}/balances`, {
@@ -72,17 +77,22 @@ app.get('/balance', async (req, res) => {
 
     const balancesPayload = await safeJson(balancesRes);
     if (!balancesRes.ok) {
-      return res
-        .status(balancesRes.status)
-        .json({ error: 'Deepgram balances request failed', details: balancesPayload });
+      const message =
+        balancesPayload?.details || balancesPayload?.message || 'Deepgram balances request failed';
+      return res.status(balancesRes.status).json({
+        error: message,
+        hint: 'This usually requires an API key with billing:read scope.',
+        details: balancesPayload
+      });
     }
 
     const first = Array.isArray(balancesPayload?.balances) ? balancesPayload.balances[0] : null;
     const balance = first?.balance ?? first?.amount ?? first?.value;
     if (typeof balance === 'undefined') {
-      return res
-        .status(500)
-        .json({ error: 'Deepgram balances response did not include a balance value', details: balancesPayload });
+      return res.status(500).json({
+        error: 'Deepgram balances response did not include a balance value',
+        details: balancesPayload
+      });
     }
 
     return res.json({ balance });
@@ -130,26 +140,7 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
-});
-
-async function resolveProjectId() {
-  if (DEEPGRAM_PROJECT_ID) return DEEPGRAM_PROJECT_ID;
-
-  const projectsRes = await fetch('https://api.deepgram.com/v1/projects', {
-    headers: {
-      Authorization: `Token ${DEEPGRAM_API_KEY}`
-    }
-  });
-
-  const payload = await safeJson(projectsRes);
-  if (!projectsRes.ok) return null;
-
-  // Deepgram returns { projects: [{ project_id, name, ... }] }
-  const projects = Array.isArray(payload?.projects) ? payload.projects : [];
-  return projects[0]?.project_id || null;
-}
+startServer(PORT);
 
 function extractTranscript(deepgramResponse) {
   // Typical response:
@@ -160,26 +151,25 @@ function extractTranscript(deepgramResponse) {
   return typeof transcript === 'string' ? transcript : '';
 }
 
-function simplifyBalance(balancePayload) {
-  // Shape can vary by account type; keep it defensive.
-  // Try common shapes and expose a single numeric-ish field.
-  const balances = balancePayload?.balances;
-  if (Array.isArray(balances) && balances.length > 0) {
-    const first = balances[0];
-    const amount = first?.balance ?? first?.amount ?? first?.value ?? null;
-    const unit = first?.unit ?? first?.units ?? first?.currency ?? 'unknown';
-    const display = amount === null || typeof amount === 'undefined' ? null : `${amount} ${unit}`.trim();
-    return { amount, unit, display };
-  }
+function startServer(port, attemptsLeft = 5) {
+  const server = http.createServer(app);
+  server.on('error', (err) => {
+    // Avoid the common dev crash loop when the default port is already in use.
+    if (err?.code === 'EADDRINUSE' && !process.env.PORT && attemptsLeft > 0) {
+      const nextPort = port + 1;
+      console.warn(`⚠️  Port ${port} in use, trying ${nextPort}...`);
+      setTimeout(() => startServer(nextPort, attemptsLeft - 1), 100);
+      return;
+    }
 
-  if (typeof balancePayload?.balance !== 'undefined') {
-    const amount = balancePayload.balance;
-    const unit = balancePayload.currency ?? balancePayload.unit ?? balancePayload.units ?? 'unknown';
-    const display = amount === null || typeof amount === 'undefined' ? null : `${amount} ${unit}`.trim();
-    return { amount, unit, display };
-  }
+    console.error(err);
+    process.exit(1);
+  });
 
-  return { amount: null, unit: 'unknown', display: null };
+  // Attach handlers before listen() to avoid unhandled 'error' in watch mode.
+  server.listen(port, () => {
+    console.log(`Server listening on http://localhost:${port}`);
+  });
 }
 
 async function safeJson(res) {

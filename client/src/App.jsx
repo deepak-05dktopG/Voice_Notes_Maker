@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import './App.css';
 
 export default function App() {
   const [walletText, setWalletText] = useState('Loading balance...');
   const [transcript, setTranscript] = useState('');
   const [status, setStatus] = useState('Idle');
   const [error, setError] = useState('');
+
+  const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -19,7 +22,7 @@ export default function App() {
 
     (async () => {
       try {
-        const res = await fetch('/balance');
+        const res = await fetch(`${apiBase}/balance`);
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || `Failed to load balance (${res.status})`);
 
@@ -80,7 +83,7 @@ export default function App() {
           const form = new FormData();
           form.append('audio', file);
 
-          const res = await fetch('/transcribe', {
+          const res = await fetch(`${apiBase}/transcribe`, {
             method: 'POST',
             body: form
           });
@@ -134,45 +137,41 @@ export default function App() {
   const isRecording = mediaRecorderRef.current?.state === 'recording';
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, maxWidth: 720 }}>
-      <h1 style={{ marginTop: 0 }}>Voice Notes Maker</h1>
-
-      <div style={{ marginBottom: 12 }}>
-        <strong>Deepgram wallet:</strong> {walletText}
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <button onClick={startRecording} disabled={!canRecord || isRecording}>
-          Start Recording
-        </button>
-        <button onClick={stopRecording} disabled={!isRecording}>
-          Stop Recording
-        </button>
-        <div style={{ marginLeft: 8 }}>
-          <strong>Status:</strong> {status}
+    <div className="app">
+      <div className="card">
+        <div className="header">
+          <h1 className="title">Voice Notes Maker</h1>
+          <div className="subtitle">Minimal voice-to-text notes with Deepgram</div>
         </div>
-      </div>
 
-      {error ? (
-        <div style={{ marginBottom: 12, color: 'crimson' }}>{error}</div>
-      ) : null}
-
-      <div>
-        <h3>Transcription</h3>
-        <div
-          style={{
-            whiteSpace: 'pre-wrap',
-            minHeight: 120,
-            padding: 12,
-            border: '1px solid #ccc'
-          }}
-        >
-          {transcript || '—'}
+        <div className="row">
+          <div className="pill">
+            <span className="pillLabel">Wallet</span>
+            <span className="pillValue">{walletText}</span>
+          </div>
+          <div className="pill">
+            <span className="pillLabel">Status</span>
+            <span className="pillValue">{status}</span>
+          </div>
         </div>
-      </div>
 
-      <div style={{ marginTop: 12, fontSize: 12, color: '#555' }}>
-        Tip: Use Chrome for best MediaRecorder support.
+        <div className="controls">
+          <button className="btn primary" onClick={startRecording} disabled={!canRecord || isRecording}>
+            Start Recording
+          </button>
+          <button className="btn" onClick={stopRecording} disabled={!isRecording}>
+            Stop Recording
+          </button>
+        </div>
+
+        {error ? <div className="error">{error}</div> : null}
+
+        <div className="section">
+          <div className="sectionTitle">Transcription</div>
+          <div className="box">{transcript || '—'}</div>
+        </div>
+
+        <div className="hint">Tip: Chrome has the best MediaRecorder support.</div>
       </div>
     </div>
   );

@@ -55,5 +55,25 @@ Client runs on `http://localhost:5173` and proxies `/transcribe` and `/balance` 
 - `GET /balance` → `{ amount, unit, projectId, raw }`
 
 ## Notes
-- If `/balance` fails, ensure your API key has access to Projects/Billing endpoints.
+- If the wallet balance shows an error, your Deepgram API key likely lacks billing permissions (often `billing:read`). Create an API key with billing access for the project.
 - If transcription is empty, try speaking louder/closer or use a different browser.
+
+## Deploy
+
+### Deploy server on Render
+- Create a new **Web Service** from this repo.
+- Root directory: `server`
+- Build command: `npm install`
+- Start command: `npm start`
+- Environment variables:
+	- `DEEPGRAM_API_KEY` = your key
+	- (optional) `DEEPGRAM_PROJECT_ID` = project id
+	- `PORT` is provided by Render automatically
+
+### Deploy client on Netlify
+- Create a new **Site** from this repo.
+- Netlify config is already included at [netlify.toml](netlify.toml).
+- Set environment variable in Netlify:
+	- `VITE_API_BASE_URL` = your Render service URL (example: `https://your-app.onrender.com`)
+
+After deploy, the client will call `${VITE_API_BASE_URL}/balance` and `${VITE_API_BASE_URL}/transcribe`.
