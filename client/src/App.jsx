@@ -172,6 +172,33 @@ export default function App() {
         </div>
 
         <div className="hint">Tip: Chrome has the best MediaRecorder support.</div>
+
+        <div className="footer">
+          <div className="footerLabel">Links</div>
+          <div className="footerLinks">
+            <a
+              href="https://www.linkedin.com/in/deepak-05dktopg/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              LinkedIn
+            </a>
+            <a
+              href="https://github.com/deepak-05dktopG/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              GitHub
+            </a>
+            <a
+              href="http://deepakdigitalcraft.works"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Portfolio
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );
